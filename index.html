@@ -141,6 +141,7 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 </style>
 </head>
 <body>
+<style>body[data-engine=native] #staging-tag::after{content:" · NATIVE HLS"}body[data-engine=hlsjs] #staging-tag::after{content:" · HLS.JS"}</style>
 <div id="staging-tag" style="position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:9999;font:600 10px/1 Outfit,sans-serif;letter-spacing:.12em;color:#07080b;background:#d4a843;padding:4px 8px;border-radius:99px;pointer-events:none;opacity:.85">STAGING<span id="staging-worker"></span></div>
 <canvas id="canvas"></canvas>
 <div id="nourl"><h2>No video link</h2><p>Add a video link to the URL like this:</p><code id="example-url"></code></div>
