@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
+<meta name="robots" content="noindex,nofollow"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>VR KINGS — For Patrons</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -140,6 +141,7 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 </style>
 </head>
 <body>
+<div id="staging-tag" style="position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:9999;font:600 10px/1 Outfit,sans-serif;letter-spacing:.12em;color:#07080b;background:#d4a843;padding:4px 8px;border-radius:99px;pointer-events:none;opacity:.85">STAGING<span id="staging-worker"></span></div>
 <canvas id="canvas"></canvas>
 <div id="nourl"><h2>No video link</h2><p>Add a video link to the URL like this:</p><code id="example-url"></code></div>
 <div id="playerError">
@@ -237,7 +239,14 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 <script>
 // Same worker as admin.html and deo.html — signs short-lived proxy links so
 // the real Bunny Stream URL is never exposed directly to the viewer.
-const WORKER_ORIGIN = 'https://vrkings-proxy.vrkings-r.workers.dev';
+// STAGING ONLY: &worker=<8-hex version id> points the player at a Worker
+// preview version (https://<id>-vrkings-proxy.vrkings-r.workers.dev).
+const WORKER_ORIGIN = (() => {
+  const id = new URLSearchParams(location.search).get('worker');
+  return /^[0-9a-f]{8}$/.test(id || '')
+    ? 'https://' + id + '-vrkings-proxy.vrkings-r.workers.dev'
+    : 'https://vrkings-proxy.vrkings-r.workers.dev';
+})();
 
 function getVideoURL() {
   const params = new URLSearchParams(window.location.search);
@@ -251,6 +260,7 @@ function getVideoURL() {
 }
 
 const VIDEO_URL = getVideoURL();
+if (WORKER_ORIGIN.includes('-vrkings-proxy')) document.getElementById('staging-worker').textContent = ' · WORKER ' + WORKER_ORIGIN.slice(8, 16);
 const VIDEO_TYPE = new URLSearchParams(window.location.search).get('type') || '360'; // '180' or '360'
 const IS_180 = VIDEO_TYPE === '180';
 
