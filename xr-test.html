@@ -120,6 +120,9 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 
 #quality-badge{position:fixed;top:4.2rem;right:1.8rem;z-index:101;display:none;align-items:center;gap:.35rem;background:rgba(7,8,11,.75);border:1px solid rgba(212,168,67,.2);border-radius:99px;padding:.22rem .7rem;font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);backdrop-filter:blur(6px);transition:opacity .3s;}
 #quality-badge.show{display:flex;}
+#player-toast{position:fixed;left:50%;bottom:6.5rem;transform:translate(-50%,8px);z-index:300;width:max-content;max-width:min(90vw,420px);box-sizing:border-box;padding:.7rem 1.1rem;border-radius:14px;background:rgba(7,8,11,.88);border:1px solid var(--border);color:var(--text);font:400 .82rem/1.45 Outfit,sans-serif;text-align:center;backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;}
+#player-toast.show{opacity:1;transform:translate(-50%,0);}
+@media (max-width:440px){#vol,#zoom-wrap{display:none !important;}}
 #quality-badge .qval{color:var(--gold2);font-weight:500;}
 /* Quality menu */
 #quality-menu{position:fixed;bottom:5.5rem;right:1.8rem;z-index:102;display:none;flex-direction:column;gap:.3rem;background:rgba(10,11,16,.92);border:1px solid rgba(212,168,67,.18);border-radius:10px;padding:.5rem;backdrop-filter:blur(10px);min-width:110px;}
@@ -207,6 +210,7 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 <div id="buffering"><div class="buf-ring"></div><div class="buf-txt">Loading…</div></div>
 <div id="quality-badge"><span class="qval" id="qval-txt">—</span></div>
 <div id="quality-menu"></div>
+<div id="player-toast" role="status" aria-live="polite"></div>
 <div id="topbar">
   <button class="backbtn" onclick="goBack()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>VR KINGS — For Patrons</div>
@@ -1017,7 +1021,7 @@ window.addEventListener('touchend', () => isDragging = false);
 
 function launch() {
   playerErrorShown = false;
-  if (IS_MOBILE && motionSupported() && !motionAsked) { motionAsked = true; toggleMotion(); }
+  if (IS_MOBILE && motionSupported() && !IS_HEADSET && !motionAsked) { motionAsked = true; toggleMotion(); }
   document.getElementById('splash').classList.add('hide');
   document.getElementById('loading').classList.add('on');
   // FIX: if nothing calls onCanPlay() within a reasonable time (WebGL
@@ -1253,20 +1257,42 @@ function toggleMotion() {
     motionActive = true;
     setMotionBtn();
     setTimeout(() => {
-      if (motionActive && !motionQ) { toggleMotion(); alert('No motion sensor data from this device.'); }
+      if (motionActive && !motionQ) { toggleMotion(); showToast('Motion control is not available on this device. Drag to look around.'); }
     }, 2000);
   };
   // iOS 13+: must be requested inside a user tap (this call happens synchronously in it)
   if (typeof DeviceOrientationEvent.requestPermission === 'function') {
     DeviceOrientationEvent.requestPermission()
-      .then(r => { if (r === 'granted') start(); else alert('Motion access was not allowed. You can still drag to look around.'); })
+      .then(r => { if (r === 'granted') start(); else showToast('Motion access was not allowed. You can still drag to look around.'); })
       .catch(err => console.warn('motion permission:', err));
   } else {
     start(); // Android Chrome: no permission prompt
   }
 }
 
-if (motionSupported()) document.getElementById('motion-btn').style.display = 'flex';
+// Headsets (Quest Browser etc.) report touch + DeviceOrientationEvent but have
+// no usable phone gyroscope — they get the VR button instead of MOTION.
+let IS_HEADSET = /OculusBrowser|Quest|Pico/i.test(navigator.userAgent);
+function updateMotionButton() {
+  document.getElementById('motion-btn').style.display = (motionSupported() && !IS_HEADSET) ? 'flex' : 'none';
+}
+if (navigator.xr && navigator.xr.isSessionSupported) {
+  navigator.xr.isSessionSupported('immersive-vr')
+    .then(ok => { if (ok) IS_HEADSET = true; })
+    .catch(() => {})
+    .finally(updateMotionButton);
+} else {
+  updateMotionButton();
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('player-toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 4500);
+}
 
 // ══ TEST ONLY: WebXR ("VR") ═════════════════════════════════════════════
 let xrStereo = null; // 180° SBS: one hemisphere per eye (three.js: left eye = layer 1, right = layer 2)
@@ -1323,7 +1349,7 @@ function enterVR() {
       sphereMesh.visible = true;
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
-  }).catch(err => { console.warn('WebXR session failed:', err); alert('Could not start VR: ' + (err && err.message || err)); });
+  }).catch(err => { console.warn('WebXR session failed:', err); showToast('Could not start VR mode on this device.'); });
 }
 </script>
 </body>
