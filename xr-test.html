@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="robots" content="noindex,nofollow"/>
+<meta http-equiv="Cache-Control" content="no-cache"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>XR TEST · VR KINGS — For Patrons</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -123,6 +124,7 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 #player-toast{position:fixed;left:50%;bottom:6.5rem;transform:translate(-50%,8px);z-index:300;width:max-content;max-width:min(90vw,420px);box-sizing:border-box;padding:.7rem 1.1rem;border-radius:14px;background:rgba(7,8,11,.88);border:1px solid var(--border);color:var(--text);font:400 .82rem/1.45 Outfit,sans-serif;text-align:center;backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;}
 #player-toast.show{opacity:1;transform:translate(-50%,0);}
 @media (max-width:440px){#vol,#zoom-wrap{display:none !important;}}
+#xr-diag{position:fixed;left:8px;right:8px;top:3.4rem;z-index:9998;white-space:pre-wrap;word-break:break-all;font:500 10px/1.35 ui-monospace,Menlo,monospace;color:#f0cc7a;background:rgba(7,8,11,.82);border:1px solid rgba(212,168,67,.35);border-radius:8px;padding:6px 8px;pointer-events:none;}
 #quality-badge .qval{color:var(--gold2);font-weight:500;}
 /* Quality menu */
 #quality-menu{position:fixed;bottom:5.5rem;right:1.8rem;z-index:102;display:none;flex-direction:column;gap:.3rem;background:rgba(10,11,16,.92);border:1px solid rgba(212,168,67,.18);border-radius:10px;padding:.5rem;backdrop-filter:blur(10px);min-width:110px;}
@@ -211,6 +213,7 @@ input#vol::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;b
 <div id="quality-badge"><span class="qval" id="qval-txt">—</span></div>
 <div id="quality-menu"></div>
 <div id="player-toast" role="status" aria-live="polite"></div>
+<div id="xr-diag"></div>
 <div id="topbar">
   <button class="backbtn" onclick="goBack()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>VR KINGS — For Patrons</div>
@@ -1270,20 +1273,42 @@ function toggleMotion() {
   }
 }
 
-// Headsets (Quest Browser etc.) report touch + DeviceOrientationEvent but have
-// no usable phone gyroscope — they get the VR button instead of MOTION.
+// ── Device capability check — runs at PAGE LOAD (like the official
+// immersive-web samples), again on navigator.xr 'devicechange', and again
+// when the player starts. Headsets (Quest Browser) report touch +
+// DeviceOrientationEvent but have no phone gyroscope: they get VR, not MOTION.
+const XR_TEST_BUILD = '4 · 2026-09-25';
 let IS_HEADSET = /OculusBrowser|Quest|Pico/i.test(navigator.userAgent);
+let XR_STATE = !('xr' in navigator) ? 'no navigator.xr' : 'checking…';
 function updateMotionButton() {
   document.getElementById('motion-btn').style.display = (motionSupported() && !IS_HEADSET) ? 'flex' : 'none';
 }
-if (navigator.xr && navigator.xr.isSessionSupported) {
-  navigator.xr.isSessionSupported('immersive-vr')
-    .then(ok => { if (ok) IS_HEADSET = true; })
-    .catch(() => {})
-    .finally(updateMotionButton);
-} else {
-  updateMotionButton();
+function updateVrButton() {
+  document.getElementById('vr-btn').style.display = XR_STATE === true ? 'flex' : 'none';
 }
+function renderDiag() {
+  const el = document.getElementById('xr-diag');
+  if (!el) return;
+  el.textContent =
+    'XR TEST build ' + XR_TEST_BUILD +
+    ' | navigator.xr: ' + ('xr' in navigator ? 'yes' : 'NO') +
+    ' | immersive-vr supported: ' + XR_STATE +
+    ' | three.js r' + (window.THREE ? THREE.REVISION : '?') +
+    ' | touch: ' + ('ontouchstart' in window ? 'yes' : 'no') +
+    ' | headset: ' + (IS_HEADSET ? 'yes' : 'no') +
+    ' | secure: ' + (window.isSecureContext ? 'yes' : 'NO') +
+    '\nUA: ' + navigator.userAgent;
+}
+function xrCheck() {
+  if (!navigator.xr || !navigator.xr.isSessionSupported) { updateMotionButton(); updateVrButton(); renderDiag(); return; }
+  navigator.xr.isSessionSupported('immersive-vr')
+    .then(ok => { XR_STATE = !!ok; if (ok) IS_HEADSET = true; })
+    .catch(err => { XR_STATE = 'error: ' + (err && (err.name || err.message) || err); })
+    .finally(() => { updateMotionButton(); updateVrButton(); renderDiag(); });
+}
+if (navigator.xr && navigator.xr.addEventListener) navigator.xr.addEventListener('devicechange', xrCheck);
+renderDiag();
+xrCheck();
 
 let toastTimer = null;
 function showToast(msg) {
@@ -1297,12 +1322,7 @@ function showToast(msg) {
 // ══ TEST ONLY: WebXR ("VR") ═════════════════════════════════════════════
 let xrStereo = null; // 180° SBS: one hemisphere per eye (three.js: left eye = layer 1, right = layer 2)
 
-function checkXrSupport() {
-  if (!navigator.xr || !navigator.xr.isSessionSupported) return;
-  navigator.xr.isSessionSupported('immersive-vr').then(ok => {
-    if (ok) document.getElementById('vr-btn').style.display = 'flex';
-  }).catch(() => {});
-}
+function checkXrSupport() { xrCheck(); } // re-check when the player starts
 
 function buildHemiEye(uOffset) {
   const g = new THREE.SphereGeometry(500, 128, 64, 3 * Math.PI / 2, Math.PI);
