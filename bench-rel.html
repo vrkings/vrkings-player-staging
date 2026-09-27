@@ -1776,12 +1776,13 @@ document.documentElement.dataset.bench='rel';
 
   let sess = null;
   function startSession() {
-    const s = renderer.xr.getSession(); if (!s) return;
+    const s = renderer.xr.getSession() || window.__lxSession; if (!s) return;
+    const path = window.__lxSession === s ? 'LAYERS (compositor video)' : 'three.js';
     const notes = [];
     try { if (XRFPS && s.updateTargetFrameRate) s.updateTargetFrameRate(XRFPS).then(() => notes.push('rate ok'), e => notes.push('rate refused')); else if (XRFPS) notes.push('no updateTargetFrameRate'); } catch (e) { notes.push('rate err'); }
     try { if (FOV != null && s.renderState.baseLayer && 'fixedFoveation' in s.renderState.baseLayer) s.renderState.baseLayer.fixedFoveation = parseFloat(FOV); else if (FOV != null) notes.push('no fixedFoveation'); } catch (e) { notes.push('fov err'); }
     const q0 = video.getVideoPlaybackQuality();
-    sess = { s, notes, t0: performance.now(), frames: [], dropped0: q0.droppedVideoFrames, total0: q0.totalVideoFrames, up0: B.uploads, vfc0: vfc };
+    sess = { s, path, notes, t0: performance.now(), frames: [], dropped0: q0.droppedVideoFrames, total0: q0.totalVideoFrames, up0: B.uploads, vfc0: vfc };
     const tick = (t) => { if (!sess || sess.s !== s) return; sess.frames.push(t); s.requestAnimationFrame(tick); };
     s.requestAnimationFrame(tick);
   }
@@ -1796,7 +1797,7 @@ document.documentElement.dataset.bench='rel';
     const dT = q1.totalVideoFrames - S.total0, dD = q1.droppedVideoFrames - S.dropped0;
     const h = video ? video.videoHeight : 0;
     const txt = label +
-      '\nVR time ' + dur.toFixed(0) + ' s | video ' + (video ? video.videoWidth + 'x' + h : '?') +
+      '\nVR path ' + S.path + ' | VR time ' + dur.toFixed(0) + ' s | video ' + (video ? video.videoWidth + 'x' + h : '?') +
       '\nXR FPS ' + (S.frames.length / dur).toFixed(1) + ' | frame median ' + med.toFixed(1) + ' ms | p95 ' + p95.toFixed(1) + ' ms | long frames ' + janks + ' (' + (iv.length ? (janks / iv.length * 100).toFixed(1) : 0) + '%)' +
       '\nVIDEO dropped ' + dD + ' / ' + dT + ' (' + (dT ? (dD / dT * 100).toFixed(1) : 0) + '%) | shown ' + ((vfc - S.vfc0) / dur).toFixed(1) + ' fps' +
       '\nGPU video uploads ' + ((B.uploads - S.up0) / dur).toFixed(1) + ' /s | headset rate ' + (S.s.frameRate || '?') + ' Hz' +
@@ -1809,7 +1810,7 @@ document.documentElement.dataset.bench='rel';
   setInterval(() => {
     if (FBS && !fbDone && renderer && !renderer.xr.isPresenting) { renderer.xr.setFramebufferScaleFactor(FBS); fbDone = true; }
     patchGl(); hookRvfc(); hookVfc();
-    const on = !!(renderer && renderer.xr && renderer.xr.isPresenting);
+    const on = !!((renderer && renderer.xr && renderer.xr.isPresenting) || window.__lxSession);
     if (on && !sess) startSession();
     if (!on && sess) endSession();
   }, 200);
