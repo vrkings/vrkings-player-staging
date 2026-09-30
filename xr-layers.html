@@ -1346,12 +1346,14 @@ function enterVR() {
   if (!navigator.xr || !renderer) return;
   if (renderer.xr.isPresenting) { renderer.xr.getSession().end(); return; }
   // requestSession must run inside the tap — no await before it
-  navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'layers'] }).then(async session => {
-    const canLayers = !LX_FORCE_OFF && session.enabledFeatures && session.enabledFeatures.includes('layers') &&
-      typeof XRMediaBinding !== 'undefined' && typeof XRWebGLBinding !== 'undefined';
+  // Ask for 'layers' only when we will use it: with 'layers' enabled the
+  // three.js (baseLayer) path does not start on Quest Browser.
+  const wantLayers = !LX_FORCE_OFF && typeof XRMediaBinding !== 'undefined' && typeof XRWebGLBinding !== 'undefined';
+  navigator.xr.requestSession('immersive-vr', { optionalFeatures: wantLayers ? ['local-floor', 'layers'] : ['local-floor'] }).then(async session => {
+    const canLayers = wantLayers && session.enabledFeatures && session.enabledFeatures.includes('layers');
     if (canLayers) {
       try { await lxStart(session); return; }
-      catch (err) { console.warn('WebXR Layers failed, using three.js path:', err); showToast('Layers mode failed: ' + (err && err.message || err)); lx = null; }
+      catch (err) { console.warn('WebXR Layers failed:', err); showToast('VR mode failed: ' + (err && err.message || err)); lx = null; session.end(); return; }
     }
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(session);
@@ -1716,6 +1718,10 @@ const LX_P = new URLSearchParams(location.search);
 const LX_FORCE_OFF = LX_P.get('layers') === '0';
 const LX_EXTRA_YAW = parseFloat(LX_P.get('yaw') || '0') * Math.PI / 180;
 const LX_FLIP = LX_P.get('flip') !== '0';
+// Quest Browser renders XRQuadLayer width/height as HALF-extents (a 0.9 m
+// value showed a ~1.8 m panel on Quest 2, 2026-09-29), so pass half sizes to
+// get the same on-screen size as the three.js VR panel. qhalf=0 → full sizes.
+const LX_QUAD_SIZE_FACTOR = LX_P.get('qhalf') === '0' ? 1 : 0.5;
 let lx = null; // active layers session state
 
 function lxQuatY(a) { return { x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) }; }
@@ -1723,7 +1729,7 @@ function lxQuatY(a) { return { x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2
 function lxMakeQuad(name, w, h, pxW, pxH) {
   const canvas = document.createElement('canvas'); canvas.width = pxW; canvas.height = pxH;
   const plane = { name, canvas, ctx: canvas.getContext('2d'), tex: { needsUpdate: true }, w, h, pxW, pxH, layer: null, visible: false, pose: null };
-  plane.layer = lx.glBinding.createQuadLayer({ space: lx.ref, viewPixelWidth: pxW, viewPixelHeight: pxH, layout: 'mono', width: w, height: h });
+  plane.layer = lx.glBinding.createQuadLayer({ space: lx.ref, viewPixelWidth: pxW, viewPixelHeight: pxH, layout: 'mono', width: w * LX_QUAD_SIZE_FACTOR, height: h * LX_QUAD_SIZE_FACTOR });
   return plane;
 }
 
@@ -1896,7 +1902,7 @@ async function lxStart(session) {
   if (video && video.paused) video.play().catch(() => {});
 }
 
-document.documentElement.dataset.bench='layers';
+document.documentElement.dataset.bench='layers-3';
 
 // ══ BENCH HARNESS (staging only) ═════════════════════════════════════════
 // URL params:
@@ -2012,6 +2018,46 @@ document.documentElement.dataset.bench='layers';
     if (on && !sess) startSession();
     if (!on && sess) endSession();
   }, 200);
+})();
+
+
+// ══ STAGING: codec diagnostics (what this browser can decode) ═════════════
+(function () {
+  const box = document.createElement('div');
+  box.id = 'codec-diag';
+  box.style.cssText = 'position:fixed;left:8px;right:8px;top:34px;z-index:9999;white-space:pre-wrap;font:600 11px/1.4 ui-monospace,Menlo,monospace;color:#f0cc7a;background:rgba(7,8,11,.9);border:1px solid rgba(212,168,67,.4);border-radius:8px;padding:8px 10px;pointer-events:none;';
+  document.body.appendChild(box);
+  const C = [
+    ['H.264 L5.1', 'video/mp4; codecs="avc1.640033"'],
+    ['H.264 L5.2', 'video/mp4; codecs="avc1.640034"'],
+    ['H.264 L6.0 (our 4K)', 'video/mp4; codecs="avc1.64003c"'],
+    ['HEVC Main L5.1 hvc1', 'video/mp4; codecs="hvc1.1.6.L153.B0"'],
+    ['HEVC Main L5.1 hev1', 'video/mp4; codecs="hev1.1.6.L153.B0"'],
+    ['HEVC Main L6.0 hvc1', 'video/mp4; codecs="hvc1.1.6.L180.B0"'],
+    ['HEVC Main10 L5.1', 'video/mp4; codecs="hvc1.2.4.L153.B0"'],
+    ['AV1 Main L5.1 8bit', 'video/mp4; codecs="av01.0.13M.08"'],
+    ['AV1 Main L6.0 8bit', 'video/mp4; codecs="av01.0.16M.08"'],
+    ['VP9 Profile0 L5.1', 'video/webm; codecs="vp09.00.51.08"'],
+  ];
+  const SIZES = [[3840, 2160], [4096, 2048], [4320, 2160], [5760, 2880]];
+  const MSE = window.ManagedMediaSource || window.MediaSource;
+  const v = document.createElement('video');
+  const lines = ['CODECS | ' + navigator.userAgent.replace(/^Mozilla\/5\.0 /, '')];
+  lines.push('name                  MSE  native | smooth/powerEff @60fps: 3840x2160 · 4096x2048 · 4320x2160 · 5760x2880');
+  const rows = C.map(([name, type]) => ({ name, type, mse: !!(MSE && MSE.isTypeSupported(type)), nat: v.canPlayType(type) || 'no', mc: SIZES.map(() => '…') }));
+  const render = () => {
+    box.textContent = lines.concat(rows.map(r => (r.name + '                    ').slice(0, 22) + (r.mse ? 'yes ' : 'NO  ') + ' ' + (r.nat + '      ').slice(0, 6) + ' | ' + r.mc.join(' · '))).join('\n');
+  };
+  render();
+  if (navigator.mediaCapabilities && navigator.mediaCapabilities.decodingInfo) {
+    rows.forEach(r => SIZES.forEach(([w, h], i) => {
+      navigator.mediaCapabilities.decodingInfo({ type: 'media-source', video: { contentType: r.type, width: w, height: h, bitrate: 30000000, framerate: 60 } })
+        .then(res => { r.mc[i] = !res.supported ? 'no' : (res.smooth ? 'S' : 's') + (res.powerEfficient ? 'P' : 'p'); render(); })
+        .catch(() => { r.mc[i] = 'err'; render(); });
+    }));
+  }
+  // legend: S/s = smooth yes/no, P/p = power-efficient (hardware) yes/no
+  lines[1] += '   (S=smooth P=hardware; lowercase = no)';
 })();
 
 </script>
